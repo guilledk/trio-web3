@@ -1,9 +1,15 @@
 #!/usr/bin/env python3
 
+import json
+
 from typing import NewType, TypedDict
 
+import msgspec
+
+from datetime import datetime
+
 from msgspec import Struct
-from eth_utils import to_int
+from eth_utils import to_int, is_hex
 from eth_typing import (
     Address,
     ChecksumAddress,
@@ -53,11 +59,12 @@ class Transaction(Struct):
     nonce: int
     to: ChecksumAddress
     transaction_index: int
-    value: int
+    value: HexStr
     v: int
     r: HexStr
     s: HexStr
 
+    @staticmethod
     def from_json(obj):
         return Transaction(
             block_hash=obj['blockHash'],
@@ -70,11 +77,14 @@ class Transaction(Struct):
             nonce=to_int(hexstr=obj['nonce']),
             to=obj['to'],
             transaction_index=to_int(hexstr=obj['transactionIndex']),
-            value=to_int(hexstr=obj['value']),
+            value=obj['value'],
             v=to_int(hexstr=obj['v']),
             r=obj['r'],
             s=obj['s']
         )
+
+    def to_dict(self):
+        return json.loads(msgspec.json.encode(self))
 
 
 class Block(Struct):
@@ -101,6 +111,19 @@ class Block(Struct):
 
     @staticmethod
     def from_json(obj):
+
+        timestamp = obj['timestamp']
+        if isinstance(timestamp, str):
+            if is_hex(timestamp):
+                timestamp = to_int(hexstr=timestamp)
+
+            else:
+                timestamp = datetime.fromisoformat(timestamp)
+
+        elif not isinstance(timestamp, int) and not isinstance(timestamp, float):
+            raise ValueError(f'Unsupported timestamp type: {timestamp}')
+
+
         return Block(
             mix_hash=obj['mixHash'],
             size=to_int(hexstr=obj['size']),
@@ -123,3 +146,6 @@ class Block(Struct):
             timestamp=to_int(hexstr=obj['timestamp']),
             transactions=[Transaction.from_json(tx) for tx in obj['transactions']]
         )
+
+    def to_dict(self):
+        return json.loads(msgspec.json.encode(self))

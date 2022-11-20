@@ -1,7 +1,7 @@
 #!/usr/bin/python3
 
 from glob import glob
-from setuptools import setup
+from setuptools import setup, find_packages
 
 
 setup(
@@ -9,7 +9,7 @@ setup(
 	version='0.1a0',
 	author='Guillermo Rodriguez',
 	author_email='guillermo@telos.net',
-	packages=['trio_web3'],
+	packages=find_packages(),
 	install_requires=[
         'trio',
         'httpx',
