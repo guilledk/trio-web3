@@ -32,7 +32,6 @@ class AsyncWeb3:
         self.endpoint = endpoint
         self.options = options
 
-        self._client = httpx.AsyncClient()
         self._rpc_id: Iterable = count(0)
 
         # contracts impl
@@ -40,23 +39,17 @@ class AsyncWeb3:
         self._codec = ABICodec(self._registry)
         self._contracts = {}
 
-    async def __aenter__(self):
-        await self._client.__aenter__()
-        return self
-
-    async def __aexit__(self, exc_type, exc, tb):
-        await self._client.__aexit__(exc_type, exc, tb)
-
     async def json_rpc(self, method: str, params: list = []) -> dict:
-        resp = (await self._client.post(
-            self.endpoint,
-            json={
-                'jsonrpc': '2.0',
-                'method': method,
-                'params': params,
-                'id': next(self._rpc_id)
-            }
-        )).json()
+        async with httpx.AsyncClient() as client:
+            resp = (await client.post(
+                self.endpoint,
+                json={
+                    'jsonrpc': '2.0',
+                    'method': method,
+                    'params': params,
+                    'id': next(self._rpc_id)
+                }
+            )).json()
 
         resp = JSONRPCResult(**resp)
         if resp.error:
@@ -241,14 +234,15 @@ class AsyncWeb3:
         )
 
     async def eth_call(self, *args, **kwargs):
-        resp = (await self._client.post(
-            self.endpoint,
-            json={
-                'jsonrpc': '2.0',
-                'method': 'eth_call',
-                'params': [self._prepare_fn_call(*args, **kwargs)],
-                'id': 1
-            })).json()
+        async with httpx.AsyncClient() as client:
+            resp = (await client.post(
+                self.endpoint,
+                json={
+                    'jsonrpc': '2.0',
+                    'method': 'eth_call',
+                    'params': [self._prepare_fn_call(*args, **kwargs)],
+                    'id': 1
+                })).json()
 
         return JSONRPCResult(**resp)
 
