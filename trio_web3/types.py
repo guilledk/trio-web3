@@ -3,6 +3,7 @@
 from typing import NewType, TypedDict
 
 from msgspec import Struct
+from eth_utils import to_int
 from eth_typing import (
     Address,
     ChecksumAddress,
@@ -41,6 +42,41 @@ class JSONRPCResult(Struct):
     error: dict | None = None
 
 
+class Transaction(Struct):
+    block_hash: HexStr
+    block_number: int
+    sender: ChecksumAddress
+    gas: int
+    gas_price: int
+    hash: HexStr
+    input: HexStr
+    nonce: int
+    to: ChecksumAddress
+    transaction_index: int
+    value: int
+    v: int
+    r: HexStr
+    s: HexStr
+
+    def from_json(obj):
+        return Transaction(
+            block_hash=obj['blockHash'],
+            block_number=to_int(hexstr=obj['blockNumber']),
+            sender=obj['from'],
+            gas=to_int(hexstr=obj['gas']),
+            gas_price=to_int(hexstr=obj['gasPrice']),
+            hash=obj['hash'],
+            input=obj['input'],
+            nonce=to_int(hexstr=obj['nonce']),
+            to=obj['to'],
+            transaction_index=to_int(hexstr=obj['transactionIndex']),
+            value=to_int(hexstr=obj['value']),
+            v=to_int(hexstr=obj['v']),
+            r=obj['r'],
+            s=obj['s']
+        )
+
+
 class Block(Struct):
     mix_hash: str
     size: int
@@ -61,29 +97,29 @@ class Block(Struct):
     logs_bloom: str
     number: int
     timestamp: float
-    transactions: list
+    transactions: list[Transaction]
 
-
-def block_from_json(obj):
-    return Block(
-        mix_hash=obj['mixHash'],
-        size=to_int(hexstr=obj['size']),
-        total_difficulty=to_int(hexstr=obj['totalDifficulty']),
-        uncles=obj['uncles'],
-        difficulty=to_int(hexstr=obj['difficulty']),
-        extra_data=obj['extraData'],
-        gas_limit=to_int(hexstr=obj['gasLimit']),
-        miner=obj['miner'],
-        nonce=to_int(hexstr=obj['nonce']),
-        parent_hash=obj['parentHash'],
-        receipts_root=obj['receiptsRoot'],
-        sha_3_uncles=obj['sha3Uncles'],
-        state_root=obj['stateRoot'],
-        transactions_root=obj['transactionsRoot'],
-        gas_used=to_int(hexstr=obj['gasUsed']),
-        hash=obj['hash'],
-        logs_bloom=obj['logsBloom'],
-        number=to_int(hexstr=obj['number']),
-        timestamp=to_int(hexstr=obj['timestamp']),
-        transactions=obj['transactions']
-    )
+    @staticmethod
+    def from_json(obj):
+        return Block(
+            mix_hash=obj['mixHash'],
+            size=to_int(hexstr=obj['size']),
+            total_difficulty=to_int(hexstr=obj['totalDifficulty']),
+            uncles=obj['uncles'],
+            difficulty=to_int(hexstr=obj['difficulty']),
+            extra_data=obj['extraData'],
+            gas_limit=to_int(hexstr=obj['gasLimit']),
+            miner=obj['miner'],
+            nonce=to_int(hexstr=obj['nonce']),
+            parent_hash=obj['parentHash'],
+            receipts_root=obj['receiptsRoot'],
+            sha_3_uncles=obj['sha3Uncles'],
+            state_root=obj['stateRoot'],
+            transactions_root=obj['transactionsRoot'],
+            gas_used=to_int(hexstr=obj['gasUsed']),
+            hash=obj['hash'],
+            logs_bloom=obj['logsBloom'],
+            number=to_int(hexstr=obj['number']),
+            timestamp=to_int(hexstr=obj['timestamp']),
+            transactions=[Transaction.from_json(tx) for tx in obj['transactions']]
+        )

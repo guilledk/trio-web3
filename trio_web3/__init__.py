@@ -12,7 +12,6 @@ import httpx
 from eth_abi.codec import (
     ABICodec,
 )
-from eth_utils import to_int
 from eth_typing import (
     HexStr,
     TypeStr,
@@ -21,10 +20,9 @@ from eth_typing import (
 
 from trio_web3.types import (
     JSONRPCResult, Block, ChainOptions,
-    block_from_json
 )
 from trio_web3.contract.abi import (
-    ABI, prepare_transaction, build_default_registry
+    ABI, prepare_transaction, build_default_registry, decode_function_input
 )
 
 
@@ -82,7 +80,7 @@ class AsyncWeb3:
             [block_num, full_transactions])
 
         if resp.result:
-            return block_from_json(resp.result)
+            return Block.from_json(resp.result)
 
         else:
             return None
@@ -126,6 +124,8 @@ class AsyncWeb3:
 
                     if block.timestamp == 0:
                         raise ValueError('timestamp == 0 in block')
+
+                    break
 
                 except ValueError:
                     await trio.sleep(.5)
@@ -226,6 +226,18 @@ class AsyncWeb3:
             },
             fn_args=fn_args,
             fn_kwargs=fn_kwargs
+        )
+
+    def decode_fn_input(
+        self,
+        contract_address: ChecksumAddress,
+        data: HexStr
+    ):
+        return decode_function_input(
+            self._contracts[contract_address]['abi'],
+            contract_address,
+            data,
+            self._codec
         )
 
     async def eth_call(self, *args, **kwargs):

@@ -95,6 +95,7 @@ from eth_utils.curried import (
 from eth_typing import (
     HexStr,
     TypeStr,
+    Primitives,
     ChecksumAddress
 )
 
@@ -203,6 +204,11 @@ def abi_to_signature(abi: Union[ABIFunction, ABIEvent]) -> str:
         ),
     )
     return function_signature
+
+def get_abi_input_names(abi: Union[ABIFunction, ABIEvent]) -> List[str]:
+    if "inputs" not in abi and abi["type"] == "fallback":
+        return []
+    return [arg["name"] for arg in abi["inputs"]]
 
 def get_abi_input_types(abi: ABIFunction) -> List[str]:
     if "inputs" not in abi and (abi["type"] == "fallback" or abi["type"] == "receive"):
@@ -347,6 +353,44 @@ def merge_args_and_kwargs(
         return sorted_args[1]
     else:
         return tuple()
+
+
+def abi_sub_tree(
+    type_str_or_abi_type: Optional[Union[TypeStr, ABIType]], data_value: Any
+) -> ABITypedData:
+    if type_str_or_abi_type is None:
+        return ABITypedData([None, data_value])
+
+    if isinstance(type_str_or_abi_type, TypeStr):
+        abi_type = parse(type_str_or_abi_type)
+    else:
+        abi_type = type_str_or_abi_type
+
+    # In the two special cases below, we rebuild the given data structures with
+    # annotated items
+    if abi_type.is_array:
+        # If type is array, determine item type and annotate all
+        # items in iterable with that type
+        item_type_str = abi_type.item_type.to_type_str()
+        value_to_annotate = [
+            abi_sub_tree(item_type_str, item_value) for item_value in data_value
+        ]
+    elif isinstance(abi_type, TupleType):
+        # Otherwise, if type is tuple, determine component types and annotate
+        # tuple components in iterable respectively with those types
+        value_to_annotate = type(data_value)(
+            abi_sub_tree(comp_type.to_type_str(), comp_value)
+            for comp_type, comp_value in zip(abi_type.components, data_value)
+        )
+    else:
+        value_to_annotate = data_value
+
+    return ABITypedData(
+        [
+            abi_type.to_type_str(),
+            value_to_annotate,
+        ]
+    )
 
 def check_if_arguments_can_be_encoded(
     function_abi: ABIFunction,
@@ -778,6 +822,9 @@ def filter_by_argument_count(
 ) -> List[Union[ABIFunction, ABIEvent]]:
     return [abi for abi in contract_abi if len(abi["inputs"]) == num_arguments]
 
+def filter_by_type(_type: str, contract_abi: ABI) -> List[Union[ABIFunction, ABIEvent]]:
+    return [abi for abi in contract_abi if abi["type"] == _type]
+
 def filter_by_name(name: str, contract_abi: ABI) -> List[Union[ABIFunction, ABIEvent]]:
     return [
         abi
@@ -788,6 +835,41 @@ def filter_by_name(name: str, contract_abi: ABI) -> List[Union[ABIFunction, ABIE
         )
     ]
 
+@curry
+def hexstr_if_str(
+    to_type: Callable[..., HexStr], hexstr_or_primitive: Union[Primitives, HexStr, str]
+) -> HexStr:
+    """
+    Convert to a type, assuming that strings can be only hexstr (not unicode text)
+    @param to_type is a function that takes the arguments (primitive, hexstr=hexstr,
+        text=text), eg~ to_bytes, to_text, to_hex, to_int, etc
+    @param hexstr_or_primitive in bytes, str, or int.
+    """
+    if isinstance(hexstr_or_primitive, str):
+        (primitive, hexstr) = (None, hexstr_or_primitive)
+        if remove_0x_prefix(HexStr(hexstr)) and not is_hex(hexstr):
+            raise ValueError(
+                "when sending a str, it must be a hex string. "
+                f"Got: {hexstr_or_primitive!r}"
+            )
+    else:
+        (primitive, hexstr) = (hexstr_or_primitive, None)
+    return to_type(primitive, hexstr=hexstr)
+
+def pad_hex(value: Any, bit_size: int) -> HexStr:
+    """
+    Pads a hex string up to the given bit_size
+    """
+    value = remove_0x_prefix(value)
+    return add_0x_prefix(value.zfill(int(bit_size / 4)))
+
+def to_4byte_hex(hex_or_str_or_bytes: Union[HexStr, str, bytes, int]) -> HexStr:
+    size_of_4bytes = 4 * 8
+    byte_str = hexstr_if_str(to_bytes, hex_or_str_or_bytes)
+    if len(byte_str) > 4:
+        raise ValueError(f"expected value of size 4 bytes. Got: {len(byte_str)} bytes")
+    hex_str = encode_hex(byte_str)
+    return pad_hex(hex_str, size_of_4bytes)
 
 def find_matching_fn_abi(
     abi: ABI,
@@ -965,3 +1047,94 @@ def decode_function_output(
     output_types = get_abi_output_types(fn_abi)
     return abi_codec.decode(output_types, data)
 
+#
+# Return Normalizers
+#
+
+def implicitly_identity(
+    to_wrap: Callable[[TypeStr, Any], Any]
+) -> Callable[[TypeStr, Any], Tuple[TypeStr, Any]]:
+    @functools.wraps(to_wrap)
+    def wrapper(type_str: TypeStr, data: Any) -> Tuple[TypeStr, Any]:
+        modified = to_wrap(type_str, data)
+        if modified is None:
+            return type_str, data
+        else:
+            return modified
+
+    return wrapper
+
+@implicitly_identity
+def addresses_checksummed(
+    type_str: TypeStr, data: Any
+) -> Tuple[TypeStr, ChecksumAddress]:
+    if type_str == "address":
+        return type_str, to_checksum_address(data)
+    return None
+
+BASE_RETURN_NORMALIZERS = [
+    addresses_checksummed,
+]
+
+def get_function_by_identifier(
+    fns: Sequence, identifier: str
+):
+    if len(fns) > 1:
+        raise ValueError(
+            f"Found multiple functions with matching {identifier}. " f"Found: {fns!r}"
+        )
+    elif len(fns) == 0:
+        raise ValueError(f"Could not find any function with matching {identifier}")
+    return fns[0]
+
+def find_functions_by_identifier(
+    contract_abi: ABI,
+    address: ChecksumAddress,
+    callable_check: Callable[..., Any],
+):
+    fns_abi = filter_by_type("function", contract_abi)
+    return [
+        (
+            fn_abi["name"],
+            fn_abi
+        )
+        for fn_abi in fns_abi
+        if callable_check(fn_abi)
+    ]
+
+def get_function_by_selector(
+    contract_abi: ABI,
+    address: ChecksumAddress,
+    selector: Union[bytes, int, HexStr]
+) -> Union["ContractFunction", "AsyncContractFunction"]:
+    def callable_check(fn_abi: ABIFunction) -> bool:
+        # typed dict cannot be used w/ a normal Dict
+        # https://github.com/python/mypy/issues/4976
+        return encode_hex(function_abi_to_4byte_selector(fn_abi)) == to_4byte_hex(selector)  # type: ignore # noqa: E501
+
+    fns = find_functions_by_identifier(
+        contract_abi, address, callable_check
+    )
+    return get_function_by_identifier(fns, "selector")
+
+def decode_function_input(
+    contract_abi: ABI,
+    address: ChecksumAddress,
+    data: HexStr,
+    abi_codec: ABICodec
+) -> Union[
+    Tuple["ContractFunction", Dict[str, Any]],
+    Tuple["AsyncContractFunction", Dict[str, Any]],
+]:
+    # type ignored b/c expects data arg to be HexBytes
+    data = HexBytes(data)  # type: ignore
+    selector, params = data[:4], data[4:]
+    func = get_function_by_selector(contract_abi, address, selector)
+
+    names = get_abi_input_names(func[-1])
+    types = get_abi_input_types(func[-1])
+
+    decoded = abi_codec.decode(types, cast(HexBytes, params))
+    normalized = map_abi_data(BASE_RETURN_NORMALIZERS, types, decoded)
+
+    return func, dict(zip(names, normalized))
