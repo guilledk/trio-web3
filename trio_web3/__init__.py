@@ -41,11 +41,11 @@ class AsyncWeb3:
         self._contracts = {}
 
     async def __aenter__(self):
-        self._client = self._client.__aenter__()
+        await self._client.__aenter__()
         return self
 
     async def __aexit__(self, exc_type, exc, tb):
-        self._client.__aexit__(exc_type, exc, tb)
+        await self._client.__aexit__(exc_type, exc, tb)
 
     async def json_rpc(self, method: str, params: list = []) -> dict:
         resp = (await self._client.post(
