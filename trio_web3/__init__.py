@@ -2,61 +2,141 @@
 
 import logging
 
-from typing import Optional
-from functools import partial
-from contextlib import aclosing, asynccontextmanager
+from itertools import count
+from contextlib import asynccontextmanager as acm, aclosing
 
-import web3
 import trio
+import httpx
 
-from .contract import AsyncContract
+from msgspec import Struct
+from eth_utils import to_int
+
+
+class JSONRPCResult(Struct):
+    jsonrpc: str = '2.0'
+    id: int
+    result: dict | None = None
+    error: dict | None = None
+
+
+class Block(Struct):
+    mix_hash: str
+    size: int
+    total_difficulty: int
+    uncles: list
+    difficulty: int
+    extra_data: str
+    gas_limit: int
+    miner: str
+    nonce: int
+    parent_hash: str
+    receipts_root: str
+    sha_3_uncles: str
+    state_root: str
+    transactions_root: str
+    gas_used: int
+    hash: str
+    logs_bloom: str
+    number: int
+    timestamp: float
+    transactions: list
+
+
+def block_from_json(obj):
+    return Block(
+        mix_hash=obj['mixHash'],
+        size=to_int(hexstr=obj['size']),
+        total_difficulty=to_int(hexstr=obj['totalDifficulty']),
+        uncles=obj['uncles'],
+        difficulty=to_int(hexstr=obj['difficulty']),
+        extra_data=obj['extraData'],
+        gas_limit=to_int(hexstr=obj['gasLimit']),
+        miner=obj['miner'],
+        nonce=to_int(hexstr=obj['nonce']),
+        parent_hash=obj['parentHash'],
+        receipts_root=obj['receiptsRoot'],
+        sha_3_uncles=obj['sha3Uncles'],
+        state_root=obj['stateRoot'],
+        transactions_root=obj['transactionsRoot'],
+        gas_used=to_int(hexstr=obj['gasUsed']),
+        hash=obj['hash'],
+        logs_bloom=obj['logsBloom'],
+        number=to_int(hexstr=obj['number']),
+        timestamp=to_int(hexstr=obj['timestamp']),
+        transactions=obj['transactions']
+    )
 
 
 class AsyncWeb3:
 
-    def __init__(self, w3):
-        self._w3 = w3
+    def __init__(self, endpoint: str):
+        self.endpoint = endpoint
+        self._client = httpx.AsyncClient()
+        self._rpc_id: Iterable = count(0)
 
-    def contract(self, *args, **kwargs):
-        return AsyncContract(
-            self._w3.eth.contract(*args, **kwargs))
+    async def __aenter__(self):
+        self._client = self._client.__aenter__()
+        return self
 
-    async def is_connected(self):
-        return await trio.to_thread.run_sync(
-            self._w3.isConnected)
+    async def __aexit__(self, exc_type, exc, tb):
+        self._client.__aexit__(exc_type, exc, tb)
+
+    async def json_rpc(self, method: str, params: list = []) -> dict:
+        resp = (await self._client.post(
+            self.endpoint,
+            json={
+                'jsonrpc': '2.0',
+                'method': method,
+                'params': params,
+                'id': next(self._rpc_id)
+            }
+        )).json()
+
+        resp = JSONRPCResult(**resp)
+        if resp.error:
+            raise ValueError(resp)
+
+        return resp
 
     async def chain_id(self):
-        return await trio.to_thread.run_sync(
-            self._w3.eth._chain_id)
+        return (await self.json_rpc('eth_chainId')).result
 
     async def block_number(self):
-        return await trio.to_thread.run_sync(
-            self._w3.eth.get_block_number)
+        return int((await self.json_rpc('eth_blockNumber')).result, 0)
 
-    async def get_block(self, *args, **kwargs):
-        return await trio.to_thread.run_sync(
-            partial(self._w3.eth.get_block, *args, **kwargs))
+    async def get_block(
+        self,
+        block_num: int | str = 'latest',
+        full_transactions: bool = True
+    ):
+        resp = await self.json_rpc(
+            'eth_getBlockByNumber',
+            [block_num, full_transactions])
+
+        if resp.result:
+            return block_from_json(resp.result)
+
+        else:
+            return None
 
     async def _stream_blocks(
         self,
         # can be 'latest', 'earliest', 'pending', a block number or a hash
         start_block: str | int = 'latest',
-        end_block: Optional[str | int] = None,
+        end_block: str | int | None = None,
         full: bool = True,
         max_tasks: int = 10
     ):
-        if start_block == 'latest':
-            start_block = await self.block_number()
-
         start_block = await self.get_block(start_block, full_transactions=full)
+
+        if not start_block:
+            raise ValueError('Couldn\t find start block')
 
         yield start_block
 
-        start_block = start_block.number.real
+        start_block = start_block.number
 
-        if end_block:
-            end_block = (await self.get_block(end_block, full_transactions=full)).number.real
-        else:
+        if not end_block:
             end_block = 2 ** 64
 
         head_block = await self.block_number()
@@ -69,14 +149,17 @@ class AsyncWeb3:
 
         send_channel, receive_channel = trio.open_memory_channel(max_tasks)
         async def block_task(block_number, event):
-            for i in range(5):
+            for i in range(8):
                 try:
                     block = await self.get_block(block_number, full_transactions=full)
 
-                    if block.timestamp == 0:
-                        raise web3.exceptions.BlockNotFound('timestamp == 0 in block')
+                    if block == None:
+                        raise ValueError('Block not found')
 
-                except web3.exceptions.BlockNotFound:
+                    if block.timestamp == 0:
+                        raise ValueError('timestamp == 0 in block')
+
+                except ValueError:
                     await trio.sleep(.5)
 
             await send_channel.send(block)
@@ -120,7 +203,7 @@ class AsyncWeb3:
             pending = {}
             async with receive_channel:
                 async for block in receive_channel:
-                    pending[block.number.real] = block
+                    pending[block.number] = block
 
                     while looking_for in pending:
                         yield pending.pop(looking_for)
@@ -131,7 +214,7 @@ class AsyncWeb3:
             # just to be sure
             need_head_updates = False
 
-    @asynccontextmanager
+    @acm
     async def stream_blocks(self, *args, **kwargs):
         async with aclosing(
             self._stream_blocks(*args, **kwargs)

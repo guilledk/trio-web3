@@ -1,5 +1,6 @@
 #!/usr/bin/python3
 
+from glob import glob
 from setuptools import setup
 
 
@@ -9,5 +10,12 @@ setup(
 	author='Guillermo Rodriguez',
 	author_email='guillermo@telos.net',
 	packages=['trio_web3'],
-	install_requires=['web3', 'trio']
+	install_requires=[
+        'trio',
+        'httpx',
+        'eth_abi',
+        'eth_utils',
+        'eth_typing'
+    ],
+    data_files=glob('abis/**')
 )

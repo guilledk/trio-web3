@@ -1,16 +1,13 @@
 import pytest
 
-from web3 import Web3, HTTPProvider
-
 from trio_web3 import AsyncWeb3
 
 
-NODE_URL = 'https://mainnet.telos.net/evm'
+NODE_URL = 'http://test1.us.telos.net:7000/evm'
 
 @pytest.fixture
 async def w3():
-    _w3 = AsyncWeb3(Web3(HTTPProvider(NODE_URL)))
-    assert await _w3.is_connected()
+    _w3 = AsyncWeb3(NODE_URL)
     yield _w3
 
 

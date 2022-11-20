@@ -1,3 +1,3 @@
 # trio-web3
 
-Lightweight trio wrapper for ethereum's `web3` package.
+Lightweight client for ethereum api using trio

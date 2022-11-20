@@ -3,7 +3,8 @@
 
 async def test_get_block(w3):
 
-    block = await w3.get_block('latest', full_transactions=True)
+    block = await w3.get_block(
+        'latest', full_transactions=True)
 
     assert 'mixHash' in block
     assert 'size' in block
