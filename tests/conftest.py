@@ -7,7 +7,7 @@ NODE_URL = 'http://test1.us.telos.net:7000/evm'
 
 @pytest.fixture
 async def w3():
-    _w3 = AsyncWeb3(NODE_URL)
+    _w3 = AsyncWeb3(NODE_URL, {'chain_id': 40})
     yield _w3
 
 

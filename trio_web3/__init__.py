@@ -2,77 +2,45 @@
 
 import logging
 
+from typing import Any, Sequence
 from itertools import count
 from contextlib import asynccontextmanager as acm, aclosing
 
 import trio
 import httpx
 
-from msgspec import Struct
+from eth_abi.codec import (
+    ABICodec,
+)
 from eth_utils import to_int
+from eth_typing import (
+    HexStr,
+    TypeStr,
+    ChecksumAddress
+)
 
-
-class JSONRPCResult(Struct):
-    jsonrpc: str = '2.0'
-    id: int
-    result: dict | None = None
-    error: dict | None = None
-
-
-class Block(Struct):
-    mix_hash: str
-    size: int
-    total_difficulty: int
-    uncles: list
-    difficulty: int
-    extra_data: str
-    gas_limit: int
-    miner: str
-    nonce: int
-    parent_hash: str
-    receipts_root: str
-    sha_3_uncles: str
-    state_root: str
-    transactions_root: str
-    gas_used: int
-    hash: str
-    logs_bloom: str
-    number: int
-    timestamp: float
-    transactions: list
-
-
-def block_from_json(obj):
-    return Block(
-        mix_hash=obj['mixHash'],
-        size=to_int(hexstr=obj['size']),
-        total_difficulty=to_int(hexstr=obj['totalDifficulty']),
-        uncles=obj['uncles'],
-        difficulty=to_int(hexstr=obj['difficulty']),
-        extra_data=obj['extraData'],
-        gas_limit=to_int(hexstr=obj['gasLimit']),
-        miner=obj['miner'],
-        nonce=to_int(hexstr=obj['nonce']),
-        parent_hash=obj['parentHash'],
-        receipts_root=obj['receiptsRoot'],
-        sha_3_uncles=obj['sha3Uncles'],
-        state_root=obj['stateRoot'],
-        transactions_root=obj['transactionsRoot'],
-        gas_used=to_int(hexstr=obj['gasUsed']),
-        hash=obj['hash'],
-        logs_bloom=obj['logsBloom'],
-        number=to_int(hexstr=obj['number']),
-        timestamp=to_int(hexstr=obj['timestamp']),
-        transactions=obj['transactions']
-    )
+from trio_web3.types import (
+    JSONRPCResult, Block, ChainOptions,
+    block_from_json
+)
+from trio_web3.contract.abi import (
+    ABI, prepare_transaction, build_default_registry
+)
 
 
 class AsyncWeb3:
 
-    def __init__(self, endpoint: str):
+    def __init__(self, endpoint: str, options: ChainOptions):
         self.endpoint = endpoint
+        self.options = options
+
         self._client = httpx.AsyncClient()
         self._rpc_id: Iterable = count(0)
+
+        # contracts impl
+        self._registry = build_default_registry()
+        self._codec = ABICodec(self._registry)
+        self._contracts = {}
 
     async def __aenter__(self):
         self._client = self._client.__aenter__()
@@ -220,3 +188,55 @@ class AsyncWeb3:
             self._stream_blocks(*args, **kwargs)
         ) as wrapped_stream:
             yield wrapped_stream
+
+    def add_contract(
+        self,
+        address: ChecksumAddress,
+        abi: ABI
+    ):
+        self._contracts[address] = {
+            'abi': abi
+        }
+
+    def _prepare_fn_call(
+        self,
+        contract_address: ChecksumAddress,
+        fn_id: str,
+        from_address: ChecksumAddress,
+        nonce: int,
+        gas: int = 21000,
+        gas_price: int = 2000000,
+        value: int = 0,
+        fn_args: Sequence[Any] | None = None,
+        fn_kwargs: Sequence[Any] | None = None,
+    ):
+        return prepare_transaction(
+            contract_address,
+            fn_id,
+            self._contracts[contract_address]['abi'],
+            self._codec,
+            transaction={
+                'chain_id': self.options['chain_id'],
+                'from': from_address,
+                'gas': 21000,
+                'gas_price': 2000000,
+                'nonce': nonce,
+                'type': 0,
+                'value': value
+            },
+            fn_args=fn_args,
+            fn_kwargs=fn_kwargs
+        )
+
+    async def eth_call(self, *args, **kwargs):
+        resp = (await self._client.post(
+            self.endpoint,
+            json={
+                'jsonrpc': '2.0',
+                'method': 'eth_call',
+                'params': [self._prepare_fn_call(*args, **kwargs)],
+                'id': 1
+            })).json()
+
+        return JSONRPCResult(**resp)
+
