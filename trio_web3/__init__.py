@@ -6,8 +6,8 @@ from typing import Any, Sequence
 from itertools import count
 from contextlib import asynccontextmanager as acm, aclosing
 
+import asks
 import trio
-import httpx
 
 from eth_abi.codec import (
     ABICodec,
@@ -33,6 +33,7 @@ class AsyncWeb3:
         self.options = options
 
         self._rpc_id: Iterable = count(0)
+        self._session = asks.Session(connections=200)
 
         # contracts impl
         self._registry = build_default_registry()
@@ -40,16 +41,16 @@ class AsyncWeb3:
         self._contracts = {}
 
     async def json_rpc(self, method: str, params: list = []) -> dict:
-        async with httpx.AsyncClient() as client:
-            resp = (await client.post(
-                self.endpoint,
-                json={
-                    'jsonrpc': '2.0',
-                    'method': method,
-                    'params': params,
-                    'id': next(self._rpc_id)
-                }
-            )).json()
+        resp = (await self._session.post(
+            self.endpoint,
+            json={
+                'jsonrpc': '2.0',
+                'method': method,
+                'params': params,
+                'id': next(self._rpc_id)
+            },
+            retries=3
+        )).json()
 
         resp = JSONRPCResult(**resp)
         if resp.error:
@@ -234,15 +235,8 @@ class AsyncWeb3:
         )
 
     async def eth_call(self, *args, **kwargs):
-        async with httpx.AsyncClient() as client:
-            resp = (await client.post(
-                self.endpoint,
-                json={
-                    'jsonrpc': '2.0',
-                    'method': 'eth_call',
-                    'params': [self._prepare_fn_call(*args, **kwargs)],
-                    'id': 1
-                })).json()
+        resp = await  self.json_rpc(
+            'eth_call', [self._prepare_fn_call(*args, **kwargs)])
 
         return JSONRPCResult(**resp)
 
