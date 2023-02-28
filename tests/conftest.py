@@ -3,7 +3,7 @@ import pytest
 from trio_web3 import AsyncWeb3
 
 
-NODE_URL = 'http://test1.us.telos.net:7000/evm'
+NODE_URL = 'http://mainnet.telos.net/evm'
 
 @pytest.fixture
 async def w3():

@@ -42,8 +42,8 @@ class ChainOptions(TypedDict):
 
 
 class JSONRPCResult(Struct):
-    jsonrpc: str = '2.0'
     id: int
+    jsonrpc: str = '2.0'
     result: dict | None = None
     error: dict | None = None
 

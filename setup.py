@@ -12,10 +12,13 @@ setup(
 	packages=find_packages(),
 	install_requires=[
         'trio',
-        'httpx',
+        'asks',
         'eth_abi',
+        'msgspec',
+        'hexbytes',
         'eth_utils',
-        'eth_typing'
+        'eth_typing',
+        'eth-hash[pycryptodome]'
     ],
     data_files=glob('abis/**')
 )

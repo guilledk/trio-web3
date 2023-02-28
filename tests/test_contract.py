@@ -1,12 +1,9 @@
 #!/usr/bin/env python3
 
-import httpx
-
 from eth_abi.codec import (
     ABICodec,
 )
 
-from trio_web3.contract import Contracts
 from trio_web3.contract.abi import build_default_registry, decode_function_output
 
 

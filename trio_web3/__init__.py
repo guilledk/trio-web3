@@ -108,21 +108,14 @@ class AsyncWeb3:
                 head_block = await self.block_number()
 
         send_channel, receive_channel = trio.open_memory_channel(max_tasks)
-        async def block_task(block_number, event):
-            for i in range(8):
-                try:
-                    block = await self.get_block(block_number, full_transactions=full)
+        async def block_task(block_number, event, retry=8):
+            for i in range(retry):
+                block = await self.get_block(block_number, full_transactions=full)
 
-                    if block == None:
-                        raise ValueError('Block not found')
+                if block == None or block.timestamp == 0:
+                    continue
 
-                    if block.timestamp == 0:
-                        raise ValueError('timestamp == 0 in block')
-
-                    break
-
-                except ValueError:
-                    await trio.sleep(.5)
+                break
 
             await send_channel.send(block)
             event.set()
@@ -235,8 +228,6 @@ class AsyncWeb3:
         )
 
     async def eth_call(self, *args, **kwargs):
-        resp = await  self.json_rpc(
+        return await  self.json_rpc(
             'eth_call', [self._prepare_fn_call(*args, **kwargs)])
-
-        return JSONRPCResult(**resp)
 

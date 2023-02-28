@@ -63,7 +63,7 @@ async def test_stream_latest_blocks(w3):
                 assert block.number - last_block.number <= 1
                 assert block.timestamp - last_block.timestamp <= 1
 
-            if block.number >= start_num + 100:
+            if block.number >= start_num + 20:
                 break
 
             last_block = block

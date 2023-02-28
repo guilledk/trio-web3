@@ -1,5 +1,0 @@
-trio
-httpx
-eth_abi
-eth_utils
-eth_typing
