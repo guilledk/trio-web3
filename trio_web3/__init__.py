@@ -22,7 +22,11 @@ from trio_web3.types import (
     JSONRPCResult, Block, ChainOptions,
 )
 from trio_web3.contract.abi import (
-    ABI, prepare_transaction, build_default_registry, decode_function_input
+    ABI,
+    prepare_transaction,
+    build_default_registry,
+    decode_function_input,
+    decode_function_output
 )
 
 
@@ -227,7 +231,32 @@ class AsyncWeb3:
             self._codec
         )
 
-    async def eth_call(self, *args, **kwargs):
-        return await  self.json_rpc(
-            'eth_call', [self._prepare_fn_call(*args, **kwargs)])
+    def decode_fn_output(
+        self,
+        fn_id: str,
+        contract_address: ChecksumAddress,
+        data: HexStr,
+        **kwargs
+    ):
+        return decode_function_output(
+            fn_id,
+            data,
+            self._contracts[contract_address]['abi'],
+            self._codec,
+            **kwargs
+        )
 
+    async def eth_call(
+        self,
+        fn_id: str,
+        contract_address: ChecksumAddress,
+        *args, **kwargs
+    ):
+        response = await  self.json_rpc(
+            'eth_call', [self._prepare_fn_call(
+                fn_id, contract_address, *args, **kwargs)])
+
+        output = response.result if response.result else response.error
+
+        return self.decode_fn_output(
+            contract_address, fn_id, output)
