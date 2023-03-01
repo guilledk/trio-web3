@@ -9,9 +9,10 @@ from contextlib import asynccontextmanager as acm, aclosing
 import asks
 import trio
 
-from eth_abi.codec import (
-    ABICodec,
+from web3.types import (
+    ABI
 )
+from eth_utils import decode_hex
 from eth_typing import (
     HexStr,
     TypeStr,
@@ -21,12 +22,9 @@ from eth_typing import (
 from trio_web3.types import (
     JSONRPCResult, Block, ChainOptions,
 )
-from trio_web3.contract.abi import (
-    ABI,
-    prepare_transaction,
-    build_default_registry,
-    decode_function_input,
-    decode_function_output
+
+from .contract import (
+    DummyW3, call_contract_function
 )
 
 
@@ -40,8 +38,7 @@ class AsyncWeb3:
         self._session = asks.Session(connections=200)
 
         # contracts impl
-        self._registry = build_default_registry()
-        self._codec = ABICodec(self._registry)
+        self._web3 = DummyW3()
         self._contracts = {}
 
     async def json_rpc(self, method: str, params: list = []) -> dict:
@@ -60,7 +57,7 @@ class AsyncWeb3:
         if resp.error:
             raise ValueError(resp)
 
-        return resp
+        return decode_hex(resp.result)
 
     async def chain_id(self):
         return (await self.json_rpc('eth_chainId')).result
@@ -189,7 +186,7 @@ class AsyncWeb3:
             'abi': abi
         }
 
-    def _prepare_fn_call(
+    async def eth_call(
         self,
         contract_address: ChecksumAddress,
         fn_id: str,
@@ -198,15 +195,15 @@ class AsyncWeb3:
         gas: int = 21000,
         gas_price: int = 2000000,
         value: int = 0,
-        fn_args: Sequence[Any] | None = None,
-        fn_kwargs: Sequence[Any] | None = None,
+        fn_args=(),
+        fn_kwargs=()
     ):
-        return prepare_transaction(
+        return await call_contract_function(
+            self._web3,
             contract_address,
+            [],
             fn_id,
-            self._contracts[contract_address]['abi'],
-            self._codec,
-            transaction={
+            {
                 'chain_id': self.options['chain_id'],
                 'from': from_address,
                 'gas': 21000,
@@ -215,48 +212,7 @@ class AsyncWeb3:
                 'type': 0,
                 'value': value
             },
-            fn_args=fn_args,
-            fn_kwargs=fn_kwargs
+            self.json_rpc,
+            fn_args, fn_kwargs,
+            contract_abi=self._contracts[contract_address]['abi'],
         )
-
-    def decode_fn_input(
-        self,
-        contract_address: ChecksumAddress,
-        data: HexStr
-    ):
-        return decode_function_input(
-            self._contracts[contract_address]['abi'],
-            contract_address,
-            data,
-            self._codec
-        )
-
-    def decode_fn_output(
-        self,
-        fn_id: str,
-        contract_address: ChecksumAddress,
-        data: HexStr,
-        **kwargs
-    ):
-        return decode_function_output(
-            fn_id,
-            data,
-            self._contracts[contract_address]['abi'],
-            self._codec,
-            **kwargs
-        )
-
-    async def eth_call(
-        self,
-        fn_id: str,
-        contract_address: ChecksumAddress,
-        *args, **kwargs
-    ):
-        response = await  self.json_rpc(
-            'eth_call', [self._prepare_fn_call(
-                fn_id, contract_address, *args, **kwargs)])
-
-        output = response.result if response.result else response.error
-
-        return self.decode_fn_output(
-            contract_address, fn_id, output)

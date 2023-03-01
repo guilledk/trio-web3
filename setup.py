@@ -13,6 +13,7 @@ setup(
 	install_requires=[
         'trio',
         'asks',
+        'web3',
         'eth_abi',
         'msgspec',
         'hexbytes',
