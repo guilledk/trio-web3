@@ -37,7 +37,12 @@ from web3._utils.normalizers import (
     BASE_RETURN_NORMALIZERS,
 )
 
-from web3.contract import Contract
+from web3.contract import (
+    Contract,
+    ContractFunctions,
+    ContractCaller,
+    ContractEvents,
+)
 
 from eth_abi.codec import (
     ABICodec,
@@ -54,6 +59,26 @@ class DummyW3:
 
     def __init__(self):
         self.codec = ABICodec(default_registry)
+
+
+class W3Contract(Contract):
+
+    def __init__(
+        self,
+        w3: DummyW3,
+        address: ChecksumAddress,
+        abi: ABI
+    ):
+        self.web3 = w3
+        self.abi = abi
+        self.address = address
+        self.bytecode = b''
+
+        self.functions = ContractFunctions(self.abi, self.web3, self.address)
+        self.caller = ContractCaller(self.abi, self.web3, self.address)
+        self.events = ContractEvents(self.abi, self.web3, self.address)
+        self.fallback = Contract.get_fallback_function(self.abi, self.web3, self.address)
+        self.receive = Contract.get_receive_function(self.abi, self.web3, self.address)
 
 
 async def call_contract_function(

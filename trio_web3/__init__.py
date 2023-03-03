@@ -12,7 +12,10 @@ import trio
 from web3.types import (
     ABI
 )
-from eth_utils import decode_hex
+from eth_utils import (
+    decode_hex,
+    is_hexstr
+)
 from eth_typing import (
     HexStr,
     TypeStr,
@@ -24,7 +27,9 @@ from trio_web3.types import (
 )
 
 from .contract import (
-    DummyW3, call_contract_function
+    DummyW3,
+    W3Contract,
+    call_contract_function
 )
 
 
@@ -57,7 +62,11 @@ class AsyncWeb3:
         if resp.error:
             raise ValueError(resp)
 
-        return decode_hex(resp.result)
+        if is_hexstr(resp.result):
+            return decode_hex(resp.result)
+
+        else:
+            return resp
 
     async def chain_id(self):
         return (await self.json_rpc('eth_chainId')).result
@@ -182,9 +191,18 @@ class AsyncWeb3:
         address: ChecksumAddress,
         abi: ABI
     ):
-        self._contracts[address] = {
-            'abi': abi
-        }
+        self._contracts[address] = W3Contract(
+            self._web3,
+            address,
+            abi
+        )
+
+    def decode_fn_input(
+        self,
+        contract_address: ChecksumAddress,
+        data: HexStr
+    ):
+        return self._contracts[contract_address].decode_function_input(data)
 
     async def eth_call(
         self,
@@ -214,5 +232,5 @@ class AsyncWeb3:
             },
             self.json_rpc,
             fn_args, fn_kwargs,
-            contract_abi=self._contracts[contract_address]['abi'],
+            contract_abi=self._contracts[contract_address].abi,
         )
