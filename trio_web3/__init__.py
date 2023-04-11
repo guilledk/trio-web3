@@ -124,8 +124,8 @@ class AsyncWeb3:
                 head_block = await self.block_number()
 
         send_channel, receive_channel = trio.open_memory_channel(max_tasks)
-        async def block_task(block_number, event, retry=8):
-            for i in range(retry):
+        async def block_task(block_number, event):
+            while True:
                 block = await self.get_block(block_number, full_transactions=full)
 
                 if block == None or block.timestamp == 0:

@@ -37,10 +37,10 @@ from web3._utils.normalizers import (
     BASE_RETURN_NORMALIZERS,
 )
 
-from web3.contract import (
+from web3.contract.contract import (
     Contract,
     ContractFunctions,
-    ContractCaller,
+    # ContractCaller,
     ContractEvents,
 )
 
@@ -55,10 +55,14 @@ from eth_abi.exceptions import (
 )
 
 
-class DummyW3:
+class DummyEth:
+    def __init__(self):
+        self.is_async = False
 
+class DummyW3:
     def __init__(self):
         self.codec = ABICodec(default_registry)
+        self.eth = DummyEth()
 
 
 class W3Contract(Contract):
@@ -75,7 +79,7 @@ class W3Contract(Contract):
         self.bytecode = b''
 
         self.functions = ContractFunctions(self.abi, self.web3, self.address)
-        self.caller = ContractCaller(self.abi, self.web3, self.address)
+        # self.caller = ContractCaller(self.abi, self.web3, self.address)
         self.events = ContractEvents(self.abi, self.web3, self.address)
         self.fallback = Contract.get_fallback_function(self.abi, self.web3, self.address)
         self.receive = Contract.get_receive_function(self.abi, self.web3, self.address)
@@ -116,7 +120,7 @@ async def call_contract_function(
         fn_abi = find_matching_fn_abi(contract_abi, web3.codec, function_identifier, fn_args, fn_kwargs)
 
     output_types = get_abi_output_types(fn_abi)
-    output_data = web3.codec.decode_abi(output_types, return_data)
+    output_data = web3.codec.decode(output_types, return_data)
 
     _normalizers = itertools.chain(
         BASE_RETURN_NORMALIZERS,
