@@ -109,7 +109,7 @@ async def call_contract_function(
     )
 
     return_data = await rpc_fn(
-        'eth_call', [tx]
+        'eth_call', [tx], decode=True
     )
 
     if fn_abi is None:

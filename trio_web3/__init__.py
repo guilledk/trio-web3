@@ -46,8 +46,14 @@ class AsyncWeb3:
         self._web3 = DummyW3()
         self._contracts = {}
 
-    async def json_rpc(self, method: str, params: list = []) -> dict:
-        resp = (await self._session.post(
+    async def json_rpc(
+        self,
+        method: str,
+        params: list = [],
+        decode: bool = False
+    ) -> dict:
+
+        resp = await self._session.post(
             self.endpoint,
             json={
                 'jsonrpc': '2.0',
@@ -56,13 +62,13 @@ class AsyncWeb3:
                 'id': next(self._rpc_id)
             },
             retries=3
-        )).json()
+        )
 
-        resp = JSONRPCResult(**resp)
+        resp = JSONRPCResult(**resp.json())
         if resp.error:
             raise ValueError(resp)
 
-        if is_hexstr(resp.result):
+        if decode and is_hexstr(resp.result):
             return decode_hex(resp.result)
 
         else:
